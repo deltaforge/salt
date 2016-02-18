@@ -303,7 +303,7 @@ def summary():
 
         salt '*' puppet.summary
     '''
-    def construct_ruby_object(loader, node):
+    def construct_ruby_object(loader, suffix, node):
         return loader.construct_yaml_map(node)
 
     def construct_ruby_sym(loader, node):
