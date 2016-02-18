@@ -82,7 +82,6 @@ class _Puppet(object):
         self.lastrunfile = self.vardir + '/state/last_run_summary.yaml'
         self.lastrunreport = self.vardir + '/state/last_run_report.yaml'
 
-
     def __repr__(self):
         '''
         Format the command string to executed using cmd.run_all.
@@ -100,7 +99,6 @@ class _Puppet(object):
         )
 
         return '{0} {1}'.format(cmd, args)
-
 
     def arguments(self, args=None):
         '''
@@ -305,28 +303,45 @@ def summary():
 
         salt '*' puppet.summary
     '''
+    def construct_ruby_object(loader, node):
+        return loader.construct_yaml_map(node)
+
+    def construct_ruby_sym(loader, node):
+        return loader.construct_yaml_str(node)
 
     puppet = _Puppet()
 
     try:
-        with salt.utils.fopen(puppet.lastrunfile, 'r') as fp_:
-            report = yaml.safe_load(fp_.read())
-        result = {}
+        yaml.add_multi_constructor(u"!ruby/object:", construct_ruby_object)
+        yaml.add_constructor(u"!ruby/sym", construct_ruby_sym)
 
-        if 'time' in report:
+        with salt.utils.fopen(puppet.lastrunfile, 'r') as fp_:
+            summary = yaml.safe_load(fp_.read())
+
+        with salt.utils.fopen(puppet.lastrunreport, 'r') as fp_:
+            report = yaml.load(fp_.read())
+
+        result = {}
+        if 'status' in report:
+            try:
+                result['status'] = report['status']
+            except (TypeError, ValueError, KeyError):
+                result['status'] = 'invalid or missing status'
+
+        if 'time' in summary:
             try:
                 result['last_run'] = datetime.datetime.fromtimestamp(
-                    int(report['time']['last_run'])).isoformat()
+                    int(summary['time']['last_run'])).isoformat()
             except (TypeError, ValueError, KeyError):
                 result['last_run'] = 'invalid or missing timestamp'
 
             result['time'] = {}
             for key in ('total', 'config_retrieval'):
-                if key in report['time']:
-                    result['time'][key] = report['time'][key]
+                if key in summary['time']:
+                    result['time'][key] = summary['time'][key]
 
-        if 'resources' in report:
-            result['resources'] = report['resources']
+        if 'resources' in summary:
+            result['resources'] = summary['resources']
 
     except yaml.YAMLError as exc:
         raise CommandExecutionError(
@@ -335,55 +350,6 @@ def summary():
     except IOError as exc:
         raise CommandExecutionError(
             'Unable to read puppet run summary: {0}'.format(exc)
-        )
-
-    return result
-
-
-def report():
-    '''
-    .. versionadded::
-
-    Show a summary of the report from the last puppet agent run
-
-    CLI Example:
-
-    .. code-block:: bash
-
-        salt '*' puppet.report
-    '''
-
-    def construct_ruby_object(loader, suffix, node):
-        return loader.construct_yaml_map(node)
-
-    def construct_ruby_sym(loader, node):
-        return loader.construct_yaml_str(node)
-
-    yaml.add_multi_constructor(u"!ruby/object:", construct_ruby_object)
-    yaml.add_constructor(u"!ruby/sym", construct_ruby_sym)
-
-    puppet = _Puppet()
-
-    try:
-        with salt.utils.fopen(puppet.lastrunreport, 'r') as fp_:
-            report = yaml.load(fp_.read())
-        result = {}
-
-        result['status'] = report['status'] if 'status' in report else ''
-        result['last_run'] = report['time'] if 'time' in report else ''
-        result['resources'] = {}
-        if 'metrics' in report and 'resources' in report['metrics'] and 'values' in report['metrics']['resources']:
-            for value in report['metrics']['resources']['values']:
-                if len(value) == 3:
-                    result['resources'][value[0]] = value[2]
-
-    except yaml.YAMLError as exc:
-        raise CommandExecutionError(
-            'YAML error parsing puppet run report: {0}'.format(exc)
-        )
-    except IOError as exc:
-        raise CommandExecutionError(
-            'Unable to read puppet run report: {0}'.format(exc)
         )
 
     return result
